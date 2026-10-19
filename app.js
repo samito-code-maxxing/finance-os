@@ -160,9 +160,7 @@ const spent = l => sum(l.tx || [], t => t.amount);
 const lineVal = l => Math.max(+l.amount || 0, spent(l));
 const keys = () => Object.keys(S.months).sort();
 function curKey() {
-  if (V.month) return V.month;
-  const now = mk(); if (S.months[now]) return now;
-  const ks = keys(); return ks.length ? ks[ks.length - 1] : now;
+  return V.month || mk();
 }
 function groups() {
   if (S.method === "custom") return BORDER.map(b => ({ n: BK[b].s, b: [b], p: +S.custom[b] || 0, c: BK[b].c }));
@@ -296,7 +294,7 @@ function render() {
     <aside class="side">
       <div class="logo"><i>€</i>Finance OS</div>
       ${TABS.map(([k, n]) => `<button class="nav ${t === k ? "on" : ""}" data-a="tab" data-v="${k}">${I[k]}${n}</button>`).join("")}
-      <button class="btn pri cta" data-a="quick">${I.plus}Noter une dépense</button>
+      <button class="btn pri cta" data-a="quick">${I.plus}Dépense ou revenu</button>
       <div class="foot"><span id="syncdot" class="dot"></span>${gh ? "Synchronisé avec GitHub" : "Données sur cet appareil"}</div>
     </aside>
     <main class="main"><div class="wrap">
@@ -306,7 +304,7 @@ function render() {
     </div></main>
   </div>
   <nav class="tabs">${TABS.map(([k, n]) => `<button class="${t === k ? "on" : ""}" data-a="tab" data-v="${k}">${I[k]}${n}</button>`).join("")}</nav>
-  ${hasData ? `<button class="fab" data-a="quick" aria-label="Noter une dépense">${I.plus}</button>` : ""}`;
+  ${hasData ? `<button class="fab" data-a="quick" aria-label="Ajouter une dépense ou un revenu">${I.plus}</button>` : ""}`;
   setSync(syncState);
   renderModal();
 }
@@ -332,7 +330,7 @@ function vHome() {
     ${first !== null ? `<div class="delta ${dv >= 0 ? "pos" : "neg"}">${sgn(dv)}${eur(Math.abs(dv), 0)} ${first ? "(" + sgn(dv) + pc(Math.abs(dv / first * 100), 1) + ")" : ""} <span class="mut">depuis ${labels[0]}</span></div>` : `<div class="delta mut">Mets à jour tes soldes chaque mois pour voir la courbe.</div>`}
     <div class="chart">${area(vals.length > 1 ? vals : [nw, nw], "var(--gold)", 140)}<div class="xl"><span>${labels[0] || ""}</span><span>${labels.length > 1 ? labels[labels.length - 1] : ""}</span></div></div>
     ${nw === 0 ? `<button class="btn sm" style="margin-top:12px" data-a="tab" data-v="patrimoine">Renseigner mes soldes →</button>` : ""}</section>`;
-  if (!st) return h + `<div class="card empty"><h2>Pas de budget pour ${mLabel(k)}</h2><p>Crée-le depuis l'onglet Budget.</p><button class="btn pri" data-a="tab" data-v="budget">Ouvrir le budget</button></div>`;
+  if (!st) { const prev = keys().filter(x => x < k).pop(); return h + `<div class="card empty"><div class="e">🗓️</div><h2>Nouveau mois : ${mLabel(k)}</h2><p>${prev ? `Reprends tes charges, abonnements et enveloppes de ${mLabel(prev)}, puis ajuste ton salaire et tes dépenses.` : "Crée ton budget du mois."}</p><div class="row-btns" style="justify-content:center">${prev ? `<button class="btn pri" data-a="dupTo" data-from="${prev}" data-to="${k}">Reprendre ${mLabel(prev)}</button>` : ""}<button class="btn" data-a="tab" data-v="budget">Ouvrir le budget</button></div></div>` }
   const gs = groupStats(st), sg = gs.find(g => g.sav);
   h += `<div class="kpis">
     <div class="kpi"><span>Revenus</span><b>${eur(st.inc)}</b><small>${mLabel(k)}</small></div>
@@ -415,7 +413,7 @@ function lineRow(l) {
 /* ---- Analyse ---- */
 function vAnalyse() {
   const ks = keys(); if (!ks.length) return `<div class="card empty"><h2>Pas encore de données</h2></div>`;
-  const k = V.amonth && S.months[V.amonth] ? V.amonth : curKey(); const st = stats(k);
+  const k = V.amonth && S.months[V.amonth] ? V.amonth : S.months[curKey()] ? curKey() : ks[ks.length - 1]; const st = stats(k);
   const all = ks.map(x => ({ k: x, ...stats(x) })); const mx = Math.max(...all.map(a => Math.max(a.inc, a.out)), 1);
   const show = all.slice(-12);
   let h = `<section class="card"><h2>Évolution mensuelle<span class="r">${show.length} mois</span></h2><p class="lead">Touche un mois pour l'analyser en détail.</p>
@@ -557,14 +555,23 @@ function renderModal() {
       <div class="field"><label>Jour de réception</label><input class="inp" id="f-day" inputmode="numeric" value="${l.day || ""}"></div></div>
       <div class="row-btns"><button class="btn pri" style="flex:1" data-a="saveInc">Enregistrer</button>${M.id ? `<button class="btn dng" data-a="delInc">Supprimer</button>` : ""}</div>`;
   } else if (M.t === "tx") {
-    const k = curKey(), m = S.months[k];
-    if (!m) { b = `<p>Crée d'abord le budget de ${mLabel(k)} dans l'onglet Budget.</p>`; t = "Noter une dépense" }
-    else {
+    const k = curKey(), m = S.months[k], rev = M.mode === "rev";
+    t = rev ? "Ajouter un revenu" : "Noter une dépense";
+    const seg = `<div class="seg" style="margin-bottom:14px"><button class="${rev ? "" : "on"}" data-a="txmode" data-v="dep">Dépense</button><button class="${rev ? "on" : ""}" data-a="txmode" data-v="rev">Revenu</button></div>`;
+    if (!m) {
+      const prev = keys().filter(x => x < k).pop();
+      b = seg + `<p>Le budget de ${mLabel(k)} n'existe pas encore.</p>${prev ? `<button class="btn pri full" data-a="dupTo" data-from="${prev}" data-to="${k}">Reprendre ${mLabel(prev)}</button>` : `<button class="btn pri full" data-a="newMonth" data-to="${k}">Créer ${mLabel(k)}</button>`}`;
+    } else if (rev) {
+      b = seg + `<div class="field"><input class="inp big-inp" id="f-amount" inputmode="decimal" placeholder="0,00 €"></div>
+        <div class="field"><label>Libellé</label><input class="inp" id="f-label" placeholder="ex. Salaire, prime, remboursement, vente…"></div>
+        <div class="field"><label>Jour de réception</label><input class="inp" id="f-day" inputmode="numeric" value="${k === mk() ? new Date().getDate() : ""}"></div>
+        <button class="btn pri full" data-a="saveRev">Ajouter aux revenus de ${mLabel(k)}</button>
+        <p class="note">Pour modifier un revenu déjà saisi (ton salaire par exemple), touche-le dans l'onglet Budget, carte Revenus.</p>`;
+    } else {
       const env = l => BORDER.indexOf(l.bucket) >= 2; const ls = m.lines.slice().sort((a, c) => (env(c) - env(a)) || ((+c.amount || 0) - (+a.amount || 0)));
-      t = "Noter une dépense";
-      b = `<div class="field"><input class="inp big-inp" id="f-amount" inputmode="decimal" placeholder="0,00 €" autofocus></div>
+      b = seg + `<div class="field"><input class="inp big-inp" id="f-amount" inputmode="decimal" placeholder="0,00 €"></div>
         <div class="field"><label>Enveloppe (${mLabel(k)})</label><select class="inp" id="f-line">${ls.map(l => `<option value="${l.id}" ${l.id === M.id ? "selected" : ""}>${esc(l.label)} · ${BK[l.bucket].s}${l.amount ? " · prévu " + money(l.amount) : ""}</option>`).join("")}</select></div>
-        <div class="field"><label>Note</label><input class="inp" id="f-note" placeholder="ex. Leclerc, resto avec Ben…"></div>
+        <div class="field"><label>Note</label><input class="inp" id="f-note" placeholder="ex. Leclerc, resto entre amis…"></div>
         <button class="btn pri full" data-a="saveTx">Ajouter</button><p class="note">La dépense s'ajoute à l'enveloppe. Si tu dépasses le prévu, c'est le réel qui compte dans tes totaux.</p>`;
     }
   } else if (M.t === "acc") {
@@ -629,6 +636,12 @@ const ACT = {
     const [, l] = findLine(val("f-line")); if (!l) return;
     const d = new Date(); l.tx.push({ id: uid(), amount: a, note: val("f-note").trim(), date: d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) });
     V.modal = null; commit(); toast(`${money(a)} ajoutés à ${l.label}`);
+  },
+  txmode: b => { V.modal.mode = b.dataset.v; renderModal() },
+  saveRev: () => {
+    const a = r2(num(val("f-amount"))); if (!(a > 0)) return alert("Indique un montant.");
+    const k = curKey(); S.months[k].income.push({ id: uid(), label: val("f-label").trim() || "Revenu", amount: a, day: dayVal("f-day") });
+    V.modal = null; commit(); toast(`${money(a)} ajoutés aux revenus`);
   },
   delTx: b => { const [, l] = findLine(b.dataset.l); if (!l) return; l.tx = l.tx.filter(x => x.id !== b.dataset.id); commit() },
   saveAcc: () => {
